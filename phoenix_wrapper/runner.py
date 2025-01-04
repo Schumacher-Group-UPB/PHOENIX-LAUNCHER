@@ -19,9 +19,9 @@ class PhoenixSolver:
     def __init__(self, *, working_directory: str | None = None, platform: str = "windows"):
         self.m_path = SELF_PATH
         self.m_platform = platform
-        self.executables = list()
-        self.settings = dict()
-        self.cwd = os.getcwd() if working_directory is None else working_directory
+        self.m_executables = list()
+        self.m_settings = dict()
+        self.m_cwd = os.getcwd() if working_directory is None else working_directory
 
     def build(self, targets: list[str] = ["cpu", "gpu"]):
         build_phoenix_exec("https://github.com/Schumacher-Group-UPB/PHOENIX", "master", targets, 4)
@@ -29,20 +29,20 @@ class PhoenixSolver:
     def update_executables(self, exec_paths: list[str] | str = list()):
         if isinstance(exec_paths, str):
             exec_paths = [exec_paths]
-        self.executables = update_phoenix_exec(["phoenix_repository", "phoenix_fallback"] + exec_paths, "exe" if self.m_platform == "windows" else "out")
+        self.m_executables = update_phoenix_exec(["phoenix_repository", "phoenix_fallback"] + exec_paths, "exe" if self.m_platform == "windows" else "out")
 
-        if not len(self.executables):
+        if not len(self.m_executables):
             print("No executables found. Please build the project first using the .build() method or provide a valid executable.")
     
     def get_executable(self, target: str = "cpu", precision: str = "fp32") -> str:
-        if not len(self.executables):
+        if not len(self.m_executables):
             self.update_executables()
         
         target = target.lower()
         precision = precision.lower()
 
         # find the first executable that matches the target and precision
-        for exec_path in [path.lower() for path in self.executables]:
+        for exec_path in [path.lower() for path in self.m_executables]:
             if target in exec_path and precision in exec_path:
                 return exec_path
         
@@ -55,7 +55,7 @@ class PhoenixSolver:
         Settings["flags"] : list includes boolean flags --> -flag
         """
         runstring = ""
-        for key, value in self.settings["parameters"].items():
+        for key, value in self.m_settings["parameters"].items():
             if isinstance(value, (list,tuple)):
                 if isinstance(value[0], (list,tuple)):
                     for v in value:
@@ -77,7 +77,7 @@ class PhoenixSolver:
                     runstring += f" --{key} '{value}' "
                 else:
                     runstring += f" --{key} {value} "
-        for flag in self.settings["flags"]:
+        for flag in self.m_settings["flags"]:
             runstring += f" -{flag}"
         return runstring.replace("  ", " ")
     
@@ -87,10 +87,10 @@ class PhoenixSolver:
         """
 
         if path is None:
-            return self.settings
+            return self.m_settings
         with open(path, "w") as f:
-            json.dump(self.settings, f)
-        return self.settings
+            json.dump(self.m_settings, f)
+        return self.m_settings
 
     def import_settings(self, *, settings: dict | None = None, parameters: dict | None = None, flags: list[str] | None = None, path: str | None = None) -> dict:
         """
@@ -99,20 +99,20 @@ class PhoenixSolver:
         """
 
         if settings is not None:
-            self.settings.update(settings)
+            self.m_settings.update(settings)
 
         # Make sure settings contain parameters and flags
         self.validate_settings()
 
         if parameters is not None:
-            self.settings["parameters"].update(parameters)
+            self.m_settings["parameters"].update(parameters)
         if flags is not None:
-            self.settings["flags"].extend(flags)
+            self.m_settings["flags"].extend(flags)
         
         if path is not None:
             with open(path, "r") as f:
                 loaded_settings = json.load(f)
-                self.settings.update(loaded_settings)
+                self.m_settings.update(loaded_settings)
 
         # Do a final validation
         return self.validate_settings()
@@ -121,24 +121,24 @@ class PhoenixSolver:
         """
         Resets settings to empty dict
         """
-        self.settings = dict()
+        self.m_settings = dict()
         return self.validate_settings()
 
     def validate_settings(self):
-        if not isinstance(self.settings, dict):
+        if not isinstance(self.m_settings, dict):
             self.reset_settings()
-        if "parameters" not in self.settings:
-            self.settings["parameters"] = dict()
-        if "flags" not in self.settings:
-            self.settings["flags"] = list()
+        if "parameters" not in self.m_settings:
+            self.m_settings["parameters"] = dict()
+        if "flags" not in self.m_settings:
+            self.m_settings["flags"] = list()
 
         # Relative path from the cwd to the cwd of the solver
-        rel_path = os.path.relpath(self.cwd, os.getcwd())
-        self.settings["parameters"]["path"] = rel_path
-        return self.settings
+        rel_path = os.path.relpath(self.m_cwd, os.getcwd())
+        self.m_settings["parameters"]["path"] = rel_path
+        return self.m_settings
     
     def set_working_directory(self, path: str):
-        self.cwd = path
+        self.m_cwd = path
         return self.validate_settings()
     
     def hints(self):
@@ -250,7 +250,7 @@ class PhoenixSolver:
                     # Labeling
                     colorbar: bool = True, xlabel: str = "", ylabel: str = "", title: str = "", cblabel: str = "",
                     # Format
-                    use_log: bool = False, use_abs: bool = False, use_phase: bool = False, pixel_coords: bool = False, fft_shift: bool = False, k_space: bool = False,
+                    use_log: bool = False, use_abs: bool = False, use_phase: bool = False, pixel_coords: bool = False, use_fft: bool = False, fft_shift: bool = False, k_space: bool = False,
                     # Plotting Parameters
                     **kwargs) -> tuple[plt.figure, plt.axes]:
         # plot a matrix using matplotlib
@@ -273,6 +273,8 @@ class PhoenixSolver:
 
         # Transform data
         data = matrix.copy()
+        if use_fft:
+            data = np.fft.fft2(data)
         if fft_shift:
             data = np.fft.fftshift(data)
         if use_phase:
@@ -284,8 +286,8 @@ class PhoenixSolver:
         
         # Set pixel coordinates
         if not pixel_coords:
-            Lx,Ly = self.settings["parameters"].get("L", (1.0,1.0))
-            Nx,Ny = self.settings["parameters"].get("N", (matrix.shape[1], matrix.shape[0]))
+            Lx,Ly = self.m_settings["parameters"].get("L", (1.0,1.0))
+            Nx,Ny = self.m_settings["parameters"].get("N", (matrix.shape[1], matrix.shape[0]))
             X = np.linspace(-Lx/2, Lx/2, Nx)
             Y = np.linspace(-Ly/2, Ly/2, Ny)
         elif k_space:
@@ -314,10 +316,10 @@ class PhoenixSolver:
 
     def plot_scalar(self, figure = None, axes = None, figsize: tuple = (12,5), **kwargs):
         try:
-            times = np.loadtxt( os.path.join(self.settings["parameters"]["path"], "times.txt"), unpack=True, skiprows=1 )
-            times_header = open( os.path.join(self.settings["parameters"]["path"], "times.txt"), "r").readline().split()
-            scalar = np.loadtxt( os.path.join(self.settings["parameters"]["path"], "scalar.txt"), unpack=True, skiprows=1 )
-            scalar_header = open( os.path.join(self.settings["parameters"]["path"], "scalar.txt"), "r").readline().split()
+            times = np.loadtxt( os.path.join(self.m_settings["parameters"]["path"], "times.txt"), unpack=True, skiprows=1 )
+            times_header = open( os.path.join(self.m_settings["parameters"]["path"], "times.txt"), "r").readline().split()
+            scalar = np.loadtxt( os.path.join(self.m_settings["parameters"]["path"], "scalar.txt"), unpack=True, skiprows=1 )
+            scalar_header = open( os.path.join(self.m_settings["parameters"]["path"], "scalar.txt"), "r").readline().split()
         except Exception as e:
             print(f"Error loading scalar data: {e}")
             return None
@@ -378,9 +380,9 @@ class PhoenixSolver:
         pass
 
     def load_matrix(self, name: str, *, sub_path: str = "") -> np.ndarray:
-        raw = np.loadtxt( os.path.join(self.settings["parameters"]["path"], sub_path, name), skiprows=1 )
+        raw = np.loadtxt( os.path.join(self.m_settings["parameters"]["path"], sub_path, name), skiprows=1 )
         # load first row to get the size of the matrix
-        with open( os.path.join(self.settings["parameters"]["path"], sub_path, name), "r") as f:
+        with open( os.path.join(self.m_settings["parameters"]["path"], sub_path, name), "r") as f:
             header = f.readline().split()
         
         # if the header does not start with "# SIZE", raise an error
@@ -409,21 +411,21 @@ class PhoenixSolver:
             raise ValueError("Matrix must be a numpy array.")
         if matrix.ndim != 2:
             raise ValueError("Matrix must be a 2D numpy array.")
-        if self.settings["parameters"].get("N", None) is None:
+        if self.m_settings["parameters"].get("N", None) is None:
             raise ValueError("Matrix size not set in the solver settings.")
-        Nx,Ny = self.settings["parameters"]["N"]
+        Nx,Ny = self.m_settings["parameters"]["N"]
         if matrix.shape[0] != Nx or matrix.shape[1] != Ny:
             raise ValueError("Matrix dimensions do not match the solver settings. {Nx}x{Ny} expected, {matrix.shape[0]}x{matrix.shape[1]} provided.")
         
-        x_max, y_max = self.settings["parameters"].get("L", (1.0,1.0))
+        x_max, y_max = self.m_settings["parameters"].get("L", (1.0,1.0))
         dx = x_max / Nx
         dy = y_max / Ny
         header = f"SIZE {Nx} {Ny} {x_max} {x_max} {dx} {dx} PYTHON-GENERATED"
         
         if np.isrealobj(matrix):
-            np.savetxt( os.path.join(self.settings["parameters"]["path"], sub_path, name), matrix, header=header, fmt=f'%.{decimals}f' )
+            np.savetxt( os.path.join(self.m_settings["parameters"]["path"], sub_path, name), matrix, header=header, fmt=f'%.{decimals}f' )
         else:
-            np.savetxt( os.path.join(self.settings["parameters"]["path"], sub_path, name), np.vstack((matrix.real, matrix.imag)), header=header, fmt=f'%.{decimals}f' )
+            np.savetxt( os.path.join(self.m_settings["parameters"]["path"], sub_path, name), np.vstack((matrix.real, matrix.imag)), header=header, fmt=f'%.{decimals}f' )
 
     # TODO: envelope builder / visualizer
     # TODO: parameter adding functions
@@ -437,37 +439,37 @@ class PhoenixSolver:
     def add_parameter(self, key: str, values, *, append: bool = False):
         if values is None:
             return self.validate_settings()
-        if key not in self.settings["parameters"]:
-            self.settings["parameters"][key] = list()
+        if key not in self.m_settings["parameters"]:
+            self.m_settings["parameters"][key] = list()
         if not isinstance(values, (list,tuple)):
             values = [values]
         if append:
-            self.settings["parameters"][key].extend(values)
+            self.m_settings["parameters"][key].extend(values)
         else:
-            self.settings["parameters"][key] = values
+            self.m_settings["parameters"][key] = values
         return self.validate_settings()
     
     def add_flag(self, flag: str):
-        if flag not in self.settings["flags"]:
-            self.settings["flags"].append(flag)
+        if flag not in self.m_settings["flags"]:
+            self.m_settings["flags"].append(flag)
         return self.validate_settings()
 
     def remove_parameter(self, key: str):
-        if key in self.settings["parameters"]:
-            del self.settings["parameters"][key]
+        if key in self.m_settings["parameters"]:
+            del self.m_settings["parameters"][key]
         return self.validate_settings()
     
     def remove_flag(self, flag: str):
-        if flag in self.settings["flags"]:
-            self.settings["flags"].remove(flag)
+        if flag in self.m_settings["flags"]:
+            self.m_settings["flags"].remove(flag)
         return self.validate_settings()
     
     def clear_parameters(self):
-        self.settings["parameters"] = dict()
+        self.m_settings["parameters"] = dict()
         return self.validate_settings()
     
     def clear_flags(self):
-        self.settings["flags"] = list()
+        self.m_settings["flags"] = list()
         return self.validate_settings()
     
     # Specialized parameter adding functions
@@ -501,8 +503,8 @@ class PhoenixSolver:
     def precalculate_envelope(self, amp: float, w_x: float, w_y: float, p_x: float, p_y: float, *, 
                        # Optional Parameters
                        power: float = 1.0, topological_charge: int = 1, type: str = "gauss+noDivide"):
-        Lx,Ly = self.settings["parameters"].get("L", None)
-        Nx,Ny = self.settings["parameters"].get("N", None)
+        Lx,Ly = self.m_settings["parameters"].get("L", None)
+        Nx,Ny = self.m_settings["parameters"].get("N", None)
         if Lx is None or Ly is None or Nx is None or Ny is None:
             raise ValueError("System size not set in the solver settings. Please set the system size before precalculating the envelope.")
         
